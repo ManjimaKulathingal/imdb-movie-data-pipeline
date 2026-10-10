@@ -3,6 +3,8 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
@@ -12,6 +14,15 @@ BASICS_FILE = RAW_DIR / "title.basics.tsv.gz"
 RATINGS_FILE = RAW_DIR / "title.ratings.tsv.gz"
 OUTPUT_FILE = OUTPUT_DIR / "movies.parquet"
 CHUNK_SIZE = 100_000
+
+NUMERIC_COLUMNS = [
+    "isAdult",
+    "startYear",
+    "endYear",
+    "runtimeMinutes",
+    "averageRating",
+    "numVotes",
+]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,8 +34,7 @@ def main():
     logging.info("Starting full IMDb ingestion")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load ratings in chunks and combine them.
-    # Ratings are much smaller than the title basics file.
+    # Read ratings in chunks, then combine the smaller ratings dataset.
     ratings_chunks = []
 
     for chunk in pd.read_csv(
@@ -32,11 +42,12 @@ def main():
         sep="\t",
         compression="gzip",
         chunksize=CHUNK_SIZE,
+        na_values=r"\N",
     ):
         ratings_chunks.append(chunk)
 
     ratings = pd.concat(ratings_chunks, ignore_index=True)
-    logging.info("Loaded %s rating records", len(ratings))
+
     ratings["averageRating"] = pd.to_numeric(
         ratings["averageRating"], errors="coerce"
     )
@@ -44,83 +55,96 @@ def main():
         ratings["numVotes"], errors="coerce"
     )
 
+    if ratings["tconst"].duplicated().any():
+        raise ValueError("Duplicate IDs found in ratings data")
 
-    # Process title records in chunks.
-    output_parts = []
+    logging.info("Loaded %s rating records", len(ratings))
+
     total_titles = 0
     total_movies = 0
+    writer = None
 
-    for chunk_number, basics in enumerate(
-        pd.read_csv(
-            BASICS_FILE,
-            sep="\t",
-            compression="gzip",
-            na_values=r"\N",
-            chunksize=CHUNK_SIZE,
-            low_memory=False,
-        ),
-        start=1,
-    ):
-        total_titles += len(basics)
-        # Standardize numeric columns across all chunks
-        for column in [
-            "isAdult",
-            "startYear",
-            "endYear",
-            "runtimeMinutes",
-        ]:
-            basics[column] = pd.to_numeric(
-                basics[column], errors="coerce"
+    try:
+        for chunk_number, basics in enumerate(
+            pd.read_csv(
+                BASICS_FILE,
+                sep="\t",
+                compression="gzip",
+                na_values=r"\N",
+                chunksize=CHUNK_SIZE,
+                low_memory=False,
+            ),
+            start=1,
+        ):
+            total_titles += len(basics)
+
+            # Normalize numeric fields to keep Parquet schema consistent.
+            for column in [
+                "isAdult",
+                "startYear",
+                "endYear",
+                "runtimeMinutes",
+            ]:
+                basics[column] = pd.to_numeric(
+                    basics[column], errors="coerce"
+                )
+
+            movies = basics.loc[
+                basics["titleType"] == "movie"
+            ].copy()
+
+            if movies.empty:
+                continue
+
+            merged = movies.merge(
+                ratings,
+                on="tconst",
+                how="left",
+                validate="one_to_one",
             )
 
-        movies = basics.loc[
-            basics["titleType"] == "movie"
-        ].copy()
+            for column in NUMERIC_COLUMNS:
+                merged[column] = pd.to_numeric(
+                    merged[column], errors="coerce"
+                ).astype("float64")
 
-        if movies.empty:
-            continue
+            # Data-quality checks for this chunk.
+            assert merged["tconst"].notna().all()
+            assert merged["tconst"].is_unique
 
-        merged = movies.merge(
-            ratings,
-            on="tconst",
-            how="left",
-            validate="one_to_one",
-        )
+            valid_ratings = merged["averageRating"].dropna()
+            assert valid_ratings.between(0, 10).all()
 
-        assert merged["tconst"].notna().all()
-        assert merged["tconst"].is_unique
+            valid_votes = merged["numVotes"].dropna()
+            assert (valid_votes >= 0).all()
 
-        valid_ratings = merged["averageRating"].dropna()
-        assert valid_ratings.between(0, 10).all()
+            table = pa.Table.from_pandas(
+                merged,
+                preserve_index=False,
+            )
 
-        # Save each chunk separately to avoid holding
-        # the entire final dataset in memory.
-        part_file = OUTPUT_DIR / f"movies_part_{chunk_number:04d}.parquet"
-        merged.to_parquet(part_file, index=False)
-        output_parts.append(part_file)
+            if writer is None:
+                writer = pq.ParquetWriter(
+                    OUTPUT_FILE,
+                    table.schema,
+                    compression="snappy",
+                )
 
-        total_movies += len(merged)
+            writer.write_table(table)
+            total_movies += len(merged)
 
-        logging.info(
-            "Processed chunk %s | movies: %s",
-            chunk_number,
-            len(merged),
-        )
+            logging.info(
+                "Processed chunk %s | movies written so far: %s",
+                chunk_number,
+                total_movies,
+            )
 
-    # Combine the processed Parquet parts into one file.
-    if not output_parts:
+    finally:
+        if writer is not None:
+            writer.close()
+
+    if total_movies == 0:
         raise RuntimeError("No movie records were found")
-
-    parts = [
-        pd.read_parquet(part_file)
-        for part_file in output_parts
-    ]
-    final_df = pd.concat(parts, ignore_index=True)
-    final_df.to_parquet(OUTPUT_FILE, index=False)
-
-    # Remove intermediate parts after the final file is written.
-    for part_file in output_parts:
-        part_file.unlink()
 
     logging.info("Total title records read: %s", total_titles)
     logging.info("Total movie records written: %s", total_movies)
