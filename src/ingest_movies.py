@@ -5,15 +5,38 @@ from pathlib import Path
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from dotenv import load_dotenv
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
+load_dotenv(PROJECT_ROOT / ".env")
 
-BASICS_FILE = RAW_DIR / "title.basics.tsv.gz"
-RATINGS_FILE = RAW_DIR / "title.ratings.tsv.gz"
-OUTPUT_FILE = OUTPUT_DIR / "movies.parquet"
-CHUNK_SIZE = 100_000
+
+def configured_path(variable_name, default_path):
+    value = os.getenv(variable_name, default_path)
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+BASICS_FILE = configured_path(
+    "BASICS_FILE", "data/raw/title.basics.tsv.gz"
+)
+RATINGS_FILE = configured_path(
+    "RATINGS_FILE", "data/raw/title.ratings.tsv.gz"
+)
+OUTPUT_FILE = configured_path(
+    "OUTPUT_FILE", "data/processed/movies.parquet"
+)
+
+try:
+    CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "100000"))
+except ValueError as exc:
+    raise ValueError("CHUNK_SIZE must be a positive integer") from exc
+
+if CHUNK_SIZE <= 0:
+    raise ValueError("CHUNK_SIZE must be a positive integer")
+OUTPUT_DIR = OUTPUT_FILE.parent
+
 
 NUMERIC_COLUMNS = [
     "isAdult",

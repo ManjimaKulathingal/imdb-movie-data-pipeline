@@ -1,0 +1,6 @@
+
+pandas
+pyarrow
+pytest
+python-dotenv
+boto3
