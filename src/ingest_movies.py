@@ -70,6 +70,14 @@ def main():
     # Read ratings in chunks, then combine the smaller ratings dataset.
     ratings_chunks = []
 
+    required_rating_columns = {
+        "tconst",
+        "averageRating",
+        "numVotes",
+    }
+
+
+
     for chunk in pd.read_csv(
         RATINGS_FILE,
         sep="\t",
@@ -77,7 +85,18 @@ def main():
         chunksize=CHUNK_SIZE,
         na_values=r"\N",
     ):
+        missing_columns = (
+            required_rating_columns - set(chunk.columns)
+        )
+
+        if missing_columns:
+            raise ValueError(
+                "IMDb ratings file is missing required columns: "
+                f"{sorted(missing_columns)}"
+            )
+
         ratings_chunks.append(chunk)
+
 
     ratings = pd.concat(ratings_chunks, ignore_index=True)
 
