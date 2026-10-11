@@ -153,6 +153,7 @@ def main():
     total_titles = 0
     total_movies = 0
     writer = None
+    total_movies_missing_ratings = 0
 
     try:
         for chunk_number, basics in enumerate(
@@ -211,6 +212,7 @@ def main():
                 how="left",
                 validate="one_to_one",
             )
+            total_movies_missing_ratings += merged["averageRating"].isna().sum()
 
             for column in NUMERIC_COLUMNS:
                 merged[column] = pd.to_numeric(
@@ -257,6 +259,10 @@ def main():
 
     logging.info("Total title records read: %s", total_titles)
     logging.info("Total movie records written: %s", total_movies)
+    logging.info(
+    "Movies with missing ratings: %s",
+    total_movies_missing_ratings,
+    )
     logging.info("Final output: %s", OUTPUT_FILE)
     logging.info("Full IMDb ingestion completed")
 
