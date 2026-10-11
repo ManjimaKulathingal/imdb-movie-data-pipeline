@@ -244,11 +244,15 @@ def main():
                 raise ValueError("Duplicate movie IDs found after merging")
 
             valid_ratings = merged["averageRating"].dropna()
-            assert valid_ratings.between(0, 10).all()
-
+            if not valid_ratings.between(0, 10).all():
+                raise ValueError(
+                        "Merged movie ratings contain values outside the 0–10 range"
+                )
             valid_votes = merged["numVotes"].dropna()
-            assert (valid_votes >= 0).all()
-
+            if (valid_votes < 0).any():
+                raise ValueError(
+                        "Merged movie records contain negative vote counts"
+                 )
             table = pa.Table.from_pandas(
                 merged,
                 preserve_index=False,
