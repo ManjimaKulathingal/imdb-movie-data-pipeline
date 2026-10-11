@@ -126,6 +126,28 @@ def main():
     if ratings["tconst"].duplicated().any():
         raise ValueError("Duplicate IDs found in ratings data")
 
+
+    invalid_rating_range = (
+        ratings["averageRating"].notna()
+        & ~ratings["averageRating"].between(0, 10)
+    )
+
+    invalid_vote_counts = (
+        ratings["numVotes"].notna()
+        & (ratings["numVotes"] < 0)
+    )
+
+    if invalid_rating_range.any():
+        raise ValueError(
+            "IMDb ratings contain values outside the 0–10 range"
+        )
+
+    if invalid_vote_counts.any():
+        raise ValueError(
+            "IMDb ratings contain negative vote counts"
+        )
+
+
     logging.info("Loaded %s rating records", len(ratings))
 
     total_titles = 0
