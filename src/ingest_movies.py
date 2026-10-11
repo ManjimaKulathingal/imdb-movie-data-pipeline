@@ -237,8 +237,11 @@ def main():
                 ).astype("float64")
 
             # Data-quality checks for this chunk.
-            assert merged["tconst"].notna().all()
-            assert merged["tconst"].is_unique
+            if merged["tconst"].isna().any():
+                raise ValueError("Movie records contain missing IDs")
+
+            if merged["tconst"].duplicated().any():
+                raise ValueError("Duplicate movie IDs found after merging")
 
             valid_ratings = merged["averageRating"].dropna()
             assert valid_ratings.between(0, 10).all()
