@@ -52,6 +52,26 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
+def validate_ratings(ratings):
+    invalid_rating_range = (
+        ratings["averageRating"].notna()
+        & ~ratings["averageRating"].between(0, 10)
+    )
+
+    invalid_vote_counts = (
+        ratings["numVotes"].notna()
+        & (ratings["numVotes"] < 0)
+    )
+
+    if invalid_rating_range.any():
+        raise ValueError(
+            "IMDb ratings contain values outside the 0–10 range"
+        )
+
+    if invalid_vote_counts.any():
+        raise ValueError(
+            "IMDb ratings contain negative vote counts"
+        )
 
 def main():
     logging.info("Starting full IMDb ingestion")
@@ -127,25 +147,7 @@ def main():
         raise ValueError("Duplicate IDs found in ratings data")
 
 
-    invalid_rating_range = (
-        ratings["averageRating"].notna()
-        & ~ratings["averageRating"].between(0, 10)
-    )
-
-    invalid_vote_counts = (
-        ratings["numVotes"].notna()
-        & (ratings["numVotes"] < 0)
-    )
-
-    if invalid_rating_range.any():
-        raise ValueError(
-            "IMDb ratings contain values outside the 0–10 range"
-        )
-
-    if invalid_vote_counts.any():
-        raise ValueError(
-            "IMDb ratings contain negative vote counts"
-        )
+    validate_ratings(ratings)
 
 
     logging.info("Loaded %s rating records", len(ratings))

@@ -1,4 +1,4 @@
-
+from src.ingest_movies import validate_ratings
 from pathlib import Path
 
 import pandas as pd
@@ -46,3 +46,46 @@ def test_ratings_are_valid(movies):
 def test_vote_counts_are_non_negative(movies):
     votes = movies["numVotes"].dropna()
     assert (votes >= 0).all()
+
+def test_rejects_rating_above_10():
+    ratings = pd.DataFrame({
+        "averageRating": [10.5],
+        "numVotes": [100],
+    })
+
+    with pytest.raises(
+        ValueError,
+        match="outside the 0–10 range",
+    ):
+        validate_ratings(ratings)
+
+
+def test_rejects_negative_vote_counts():
+    ratings = pd.DataFrame({
+        "averageRating": [8.5],
+        "numVotes": [-1],
+    })
+
+    with pytest.raises(
+        ValueError,
+        match="negative vote counts",
+    ):
+        validate_ratings(ratings)
+
+def test_accepts_valid_ratings():
+    ratings = pd.DataFrame({
+        "averageRating": [0, 7.5, 10],
+        "numVotes": [0, 100, 500],
+    })
+
+    # Valid values should not raise an exception.
+    validate_ratings(ratings)
+
+def test_accepts_missing_ratings_and_votes():
+    ratings = pd.DataFrame({
+        "averageRating": [None, 8.0],
+        "numVotes": [100, None],
+    })
+
+    validate_ratings(ratings)
+
