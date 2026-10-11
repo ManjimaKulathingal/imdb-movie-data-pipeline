@@ -88,6 +88,22 @@ def main():
         ratings["numVotes"], errors="coerce"
     )
 
+    invalid_ratings = ratings["averageRating"].isna().sum()
+    invalid_votes = ratings["numVotes"].isna().sum()
+
+    if invalid_ratings > 0:
+        logging.warning(
+            "Found %s missing or invalid average ratings",
+            invalid_ratings,
+        )
+
+    if invalid_votes > 0:
+        logging.warning(
+            "Found %s missing or invalid vote counts",
+            invalid_votes,
+        )
+
+
     if ratings["tconst"].duplicated().any():
         raise ValueError("Duplicate IDs found in ratings data")
 
@@ -110,6 +126,25 @@ def main():
             start=1,
         ):
             total_titles += len(basics)
+
+            required_columns = {
+                "tconst",
+                "titleType",
+                "primaryTitle",
+                "isAdult",
+                "startYear",
+                "endYear",
+                "runtimeMinutes",
+            }
+
+            missing_columns = required_columns - set(basics.columns)
+
+            if missing_columns:
+                raise ValueError(
+                    f"IMDb basics file is missing required columns: "
+                    f"{sorted(missing_columns)}"
+                )
+
 
             # Normalize numeric fields to keep Parquet schema consistent.
             for column in [
