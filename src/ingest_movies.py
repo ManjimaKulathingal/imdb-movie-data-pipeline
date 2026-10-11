@@ -84,6 +84,11 @@ def validate_ratings(ratings):
         )
 
 def main():
+    logging.info("Starting IMDb movie ingestion")
+    logging.info("Basics input: %s", BASICS_FILE)
+    logging.info("Ratings input: %s", RATINGS_FILE)
+    logging.info("Output file: %s", OUTPUT_FILE)
+    logging.info("Chunk size: %s", CHUNK_SIZE)
     logging.info("Starting full IMDb ingestion")
 
     # Validate both input files before starting ingestion.
