@@ -55,6 +55,16 @@ logging.basicConfig(
 
 def main():
     logging.info("Starting full IMDb ingestion")
+
+    # Validate both input files before starting ingestion.
+    for input_file in [BASICS_FILE, RATINGS_FILE]:
+        if not input_file.is_file():
+            raise FileNotFoundError(
+                f"Required input file not found: {input_file}"
+            )
+
+        logging.info("Found input file: %s", input_file)
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Read ratings in chunks, then combine the smaller ratings dataset.
