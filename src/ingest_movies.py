@@ -28,13 +28,23 @@ OUTPUT_FILE = configured_path(
     "OUTPUT_FILE", "data/processed/movies.parquet"
 )
 
-try:
-    CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "100000"))
-except ValueError as exc:
-    raise ValueError("CHUNK_SIZE must be a positive integer") from exc
+def get_chunk_size(value):
+    try:
+        chunk_size = int(value)
+    except ValueError as exc:
+        raise ValueError(
+            "CHUNK_SIZE must be a positive integer"
+        ) from exc
 
-if CHUNK_SIZE <= 0:
-    raise ValueError("CHUNK_SIZE must be a positive integer")
+    if chunk_size <= 0:
+        raise ValueError(
+            "CHUNK_SIZE must be a positive integer"
+        )
+
+    return chunk_size
+
+
+CHUNK_SIZE = get_chunk_size(os.getenv("CHUNK_SIZE", "100000"))
 OUTPUT_DIR = OUTPUT_FILE.parent
 
 

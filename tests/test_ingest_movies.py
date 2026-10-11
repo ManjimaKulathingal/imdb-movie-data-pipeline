@@ -1,4 +1,5 @@
 from src.ingest_movies import validate_ratings
+from src.ingest_movies import get_chunk_size
 from pathlib import Path
 
 import pandas as pd
@@ -88,4 +89,25 @@ def test_accepts_missing_ratings_and_votes():
     })
 
     validate_ratings(ratings)
+
+
+def test_rejects_zero_chunk_size():
+    with pytest.raises(
+        ValueError,
+        match="CHUNK_SIZE must be a positive integer",
+    ):
+        get_chunk_size("0")
+
+
+def test_rejects_non_numeric_chunk_size():
+    with pytest.raises(
+        ValueError,
+        match="CHUNK_SIZE must be a positive integer",
+    ):
+        get_chunk_size("abc")
+
+def test_accepts_valid_chunk_size():
+    assert get_chunk_size("100000") == 100000
+    assert get_chunk_size("1") == 1
+
 
