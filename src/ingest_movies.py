@@ -83,6 +83,12 @@ def validate_ratings(ratings):
             "IMDb ratings contain negative vote counts"
         )
 
+def identify_new_movies(movies, existing_ids):
+     """Return movie records whose IDs are not already present."""
+     return movies.loc[
+          ~movies["tconst"].isin(existing_ids)
+      ].copy()
+
 def main():
     logging.info("Starting IMDb movie ingestion")
     logging.info("Basics input: %s", BASICS_FILE)
@@ -163,7 +169,6 @@ def main():
 
 
     validate_ratings(ratings)
-
 
     logging.info("Loaded %s rating records", len(ratings))
 

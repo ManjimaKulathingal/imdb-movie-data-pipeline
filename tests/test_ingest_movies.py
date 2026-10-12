@@ -1,5 +1,6 @@
 from src.ingest_movies import validate_ratings
 from src.ingest_movies import get_chunk_size
+from src.ingest_movies import identify_new_movies
 from pathlib import Path
 
 import pandas as pd
@@ -109,5 +110,44 @@ def test_rejects_non_numeric_chunk_size():
 def test_accepts_valid_chunk_size():
     assert get_chunk_size("100000") == 100000
     assert get_chunk_size("1") == 1
+
+def test_identifies_only_new_movies():
+    movies = pd.DataFrame({
+        "tconst": ["tt001", "tt002", "tt003"],
+        "primaryTitle": ["Movie A", "Movie B", "Movie C"],
+    })
+
+    existing_ids = {"tt001", "tt003"}
+
+    result = identify_new_movies(movies, existing_ids)
+
+    assert result["tconst"].tolist() == ["tt002"]
+    assert result["primaryTitle"].tolist() == ["Movie B"]
+
+
+def test_all_movies_are_new():
+    movies = pd.DataFrame({
+        "tconst": ["tt001", "tt002"],
+        "primaryTitle": ["Movie A", "Movie B"],
+    })
+
+    result = identify_new_movies(movies, set())
+
+    assert result["tconst"].tolist() == ["tt001", "tt002"]
+
+
+def test_no_movies_are_new():
+    movies = pd.DataFrame({
+        "tconst": ["tt001", "tt002"],
+        "primaryTitle": ["Movie A", "Movie B"],
+    })
+
+    existing_ids = {"tt001", "tt002"}
+
+    result = identify_new_movies(movies, existing_ids)
+
+    assert result.empty
+    assert list(result.columns) == list(movies.columns)
+
 
 
