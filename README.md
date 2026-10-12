@@ -1,38 +1,41 @@
+﻿# IMDb Movie Data Ingestion Pipeline
 
-# IMDb Movie Data Ingestion Pipeline
+A Python-based data engineering project that ingests public IMDb datasets, transforms movie metadata, combines ratings, validates data quality, and writes the results to Parquet.
 
-A Python-based data engineering project that ingests public IMDb datasets, transforms movie metadata, combines ratings, validates data quality, and stores the results in Parquet format.
+The project demonstrates chunk-based processing, incremental ingestion, data validation, automated testing, and safe output replacement.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    A[IMDb Public Datasets] --> B[Read TSV.GZ Files]
-    B --> C[Process Title Metadata in Chunks]
-    C --> D[Clean and Standardize Data]
-    E[IMDb Ratings Dataset] --> F[Prepare Ratings]
-    F --> G[Join Using tconst]
-    D --> G
-    G --> H[Data Quality Checks]
-    H --> I[Write Incrementally with PyArrow]
-    I --> J[movies.parquet]
-```
+    A[IMDb Public Datasets] --> B[Compressed TSV Files]
+    B --> C[Read Title Metadata in Chunks]
+    C --> D[Filter Movies and Transform Columns]
+    E[IMDb Ratings Dataset] --> F[Load and Validate Ratings]
+    D --> G[Join on tconst]
+    F --> G
+    G --> H[Validate Movie Records]
+    H --> I[Skip Existing Movie IDs]
+    I --> J[Write Temporary Parquet Output]
+    J --> K[Validate Output]
+    K --> L[Replace Final Parquet File]
 
 ## Technologies
 
-- **Python 3.12** — data processing
+- **Python 3.12** — pipeline implementation
 - **Pandas** — reading, cleaning, transforming, and joining datasets
-- **PyArrow** — Parquet output with incremental writes
+- **PyArrow** — Parquet storage and incremental writes
+- **python-dotenv** — environment-based configuration
 - **pytest** — automated testing
-- **Git and GitHub** — version control and project hosting
+- **Git and GitHub** — version control
 
 ## Data Sources
 
-This project uses IMDb's publicly available datasets:
+The project uses IMDb's publicly available datasets:
 
 | Dataset | Description |
 |---|---|
-| `title.basics.tsv.gz` | Movie titles and metadata, including release year, runtime, and genres |
+| `title.basics.tsv.gz` | Title metadata, including title type, release year, runtime, and genres |
 | `title.ratings.tsv.gz` | Average ratings and number of votes |
 
 Source: https://datasets.imdbws.com/
@@ -41,65 +44,105 @@ IMDb datasets are subject to IMDb's usage and licensing terms.
 
 ## Pipeline Workflow
 
-1. Read IMDb title metadata in chunks to reduce memory usage during processing.
-2. Load and prepare IMDb ratings.
+1. Read title metadata in chunks to reduce memory use during title processing.
+2. Load and validate ratings data.
 3. Filter the title metadata to include movies only.
-4. Join movie records with ratings using the IMDb title identifier, `tconst`.
+4. Join movie records with ratings using `tconst`.
 5. Standardize numeric columns and handle missing values.
-6. Validate identifiers, rating ranges, and vote counts.
-7. Write processed records incrementally to a single Parquet output file.
+6. Validate identifiers, required columns, rating ranges, and vote counts.
+7. Identify movies already present in the output and skip them.
+8. Write new records to a temporary Parquet file alongside existing records.
+9. Validate the resulting dataset and replace the final output only after successful processing.
 
-The pipeline uses a left join so that movies without available ratings remain in the output.
+The pipeline uses a left join so that movies without available ratings can remain in the output.
 
-## Data Quality Checks
+**Incremental processing note:** title metadata is processed in chunks, but the current ratings implementation collects its chunks into memory. Therefore, the entire pipeline is not yet fully memory-streaming.
 
-The pipeline and automated tests check:
+## Configuration
 
-- Movie identifiers are present and unique.
-- Output contains movie records only.
-- Required columns are present.
-- Ratings are within the range of 0 to 10 when available.
-- Vote counts are non-negative.
-- The generated output exists and is not empty.
+Pipeline settings are managed through a `.env` file in the project root.
+
+Example:
+
+```dotenv
+BASICS_FILE=data/raw/title.basics.tsv.gz
+RATINGS_FILE=data/raw/title.ratings.tsv.gz
+OUTPUT_FILE=data/processed/movies.parquet
+CHUNK_SIZE=100000
+```
+
+Paths are resolved relative to the project root. Adjust `CHUNK_SIZE` to change the number of title records processed per chunk.
+
+Do not put passwords, access keys, or other secrets in files committed to Git.
+
+## Data Quality and Reliability
+
+The pipeline and automated tests cover:
+
+- Required columns and missing movie identifiers
+- Duplicate identifiers in ratings data
+- Rating values between 0 and 10
+- Non-negative vote counts
+- Movie-only output and expected output columns
+- Incremental ingestion that preserves existing movies
+- Repeat runs without duplicate movie IDs
+- Missing or unexpected columns in title metadata
+- Safe handling of ingestion failures without damaging the previous output
+- Positive integer validation for `CHUNK_SIZE`
+
+The pipeline also logs processing metrics, including title rows read, movies found, new movies added, existing movies skipped, and final output row counts.
 
 ## Results
 
-| Metric | Result |
+The following figures are from an earlier successful full ingestion run. Results can change when the IMDb source datasets are updated.
+
+| Metric | Recorded result |
 |---|---:|
 | Title records read | 12,852,122 |
 | Movie records written | 759,083 |
-| Automated tests | 6 passing |
 | Output format | Parquet |
 | Compression | Snappy |
+| Current automated tests | 29 passing |
 
 **Output file:** `data/processed/movies.parquet`
 
-The raw datasets and generated output are excluded from GitHub to keep the repository lightweight.
+Raw datasets and generated Parquet files are excluded from Git to keep the repository lightweight.
 
 ## Run Locally
 
-### 1. Install dependencies
+### 1. Create and activate a virtual environment
 
-Activate your Python virtual environment, then install the required packages:
+Windows PowerShell:
 
-```bash
-pip install pandas pyarrow pytest
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-### 2. Download the IMDb datasets
+### 2. Install dependencies
 
-Download `title.basics.tsv.gz` and `title.ratings.tsv.gz` from https://datasets.imdbws.com/ and place both files in `data/raw/`.
+```powershell
+python -m pip install -r requirements.txt
+```
 
-### 3. Run the pipeline
+### 3. Download the IMDb datasets
 
-```bash
+Download `title.basics.tsv.gz` and `title.ratings.tsv.gz` from https://datasets.imdbws.com/ and place them in `data/raw/`.
+
+### 4. Configure the pipeline
+
+Create or update `.env` in the project root using the configuration example above.
+
+### 5. Run ingestion
+
+```powershell
 python src/ingest_movies.py
 ```
 
-### 4. Run automated tests
+### 6. Run automated tests
 
-```bash
-python -m pytest tests/test_ingest_movies.py -v
+```powershell
+python -m pytest -v
 ```
 
 ## Project Structure
@@ -114,26 +157,35 @@ imdb-movie-pipeline/
 │   └── ingest_movies_sample.py
 ├── tests/
 │   └── test_ingest_movies.py
+├── .env
 ├── .gitignore
+├── requirements.txt
 └── README.md
 ```
 
-## Current Status
+The `.venv/` virtual environment is local and should not be committed.
 
-**Completed**
+## Project Status
+
+### Completed
+
 - Local IMDb data ingestion and transformation
+- Chunk-based title processing
 - Incremental Parquet output
 - Data quality validation
-- Six automated tests
-- GitHub version control
+- Temporary output and failure-safety handling
+- Automated test suite — 29 passing tests
+- Configuration through `.env`
+- GitHub version control and documentation
 
-**Planned enhancements**
-- AWS S3 integration for cloud storage
+### Planned
+
+- AWS S3 integration, with cost checks before creating resources
 - AWS Glue Data Catalog
-- Querying Parquet data with Amazon Athena
-- Workflow orchestration and cloud deployment
+- SQL analysis with Amazon Athena
+- Airflow orchestration and cloud workflow integration
+- Portfolio documentation and interview preparation
 
 ## Data and Repository Notes
 
-This repository contains source code, tests, and documentation. Raw IMDb datasets, generated Parquet files, virtual environments, and credentials should not be committed to GitHub.
-
+This repository contains source code, tests, and documentation. Raw datasets, generated Parquet files, virtual environments, and credentials should not be committed to GitHub.

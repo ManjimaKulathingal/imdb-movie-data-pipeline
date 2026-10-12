@@ -454,3 +454,171 @@ def test_failed_ingestion_preserves_existing_output(
 
     assert output_file.read_bytes() == original_bytes
     assert not temp_output_file.exists()
+
+
+# --------------------------------------------------
+# Basics schema-change tests
+# --------------------------------------------------
+
+def test_missing_required_basics_column_preserves_existing_output(
+    tmp_path,
+    monkeypatch,
+):
+    basics_file, ratings_file = write_input_files(
+        tmp_path,
+        basics_rows=[
+            [
+                "ttnew1",
+                "movie",
+                "New Movie",
+                "New Movie",
+                0,
+                2024,
+                r"\N",
+                120,
+                "Drama",
+            ],
+        ],
+        ratings_rows=[
+            ["ttnew1", 8.2, 1000],
+        ],
+    )
+
+    basics = pd.read_csv(
+        basics_file,
+        sep="\t",
+        compression="gzip",
+        dtype=str,
+    )
+    basics = basics.drop(columns=["primaryTitle"])
+    basics.to_csv(
+        basics_file,
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+
+    output_file = tmp_path / "processed" / "movies.parquet"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    sample_output_movies().to_parquet(output_file, index=False)
+    original_output = output_file.read_bytes()
+
+    configure_test_pipeline(
+        monkeypatch,
+        tmp_path,
+        basics_file,
+        ratings_file,
+        output_file,
+    )
+
+    with pytest.raises(ValueError, match="required columns"):
+        ingest_movies.main()
+
+    assert output_file.read_bytes() == original_output
+    assert not output_file.with_suffix(".tmp.parquet").exists()
+
+
+def test_unexpected_basics_column_does_not_break_ingestion(
+    tmp_path,
+    monkeypatch,
+):
+    basics_file, ratings_file = write_input_files(
+        tmp_path,
+        basics_rows=[
+            [
+                "ttnew1",
+                "movie",
+                "New Movie",
+                "New Movie",
+                0,
+                2024,
+                r"\N",
+                120,
+                "Drama",
+            ],
+        ],
+        ratings_rows=[
+            ["ttnew1", 8.2, 1000],
+        ],
+    )
+
+    basics = pd.read_csv(
+        basics_file,
+        sep="\t",
+        compression="gzip",
+        dtype=str,
+    )
+    basics["unexpectedTestColumn"] = "extra value"
+    basics.to_csv(
+        basics_file,
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+
+    output_file = tmp_path / "processed" / "movies.parquet"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    configure_test_pipeline(
+        monkeypatch,
+        tmp_path,
+        basics_file,
+        ratings_file,
+        output_file,
+    )
+
+    ingest_movies.main()
+
+    result = pd.read_parquet(output_file)
+
+    assert "ttnew1" in result["tconst"].values
+    assert "unexpectedTestColumn" not in result.columns
+    assert len(result.columns) == 11
+
+
+def test_repeated_ingestion_does_not_duplicate_movies(
+    tmp_path,
+    monkeypatch,
+):
+    basics_file, ratings_file = write_input_files(
+        tmp_path,
+        basics_rows=[
+            [
+                "ttnew1",
+                "movie",
+                "New Movie",
+                "New Movie",
+                0,
+                2024,
+                r"\N",
+                120,
+                "Drama",
+            ],
+        ],
+        ratings_rows=[
+            ["ttnew1", 8.2, 1000],
+        ],
+    )
+
+    output_file = tmp_path / "processed" / "movies.parquet"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    configure_test_pipeline(
+        monkeypatch,
+        tmp_path,
+        basics_file,
+        ratings_file,
+        output_file,
+    )
+
+    ingest_movies.main()
+    first_run = pd.read_parquet(output_file)
+
+    ingest_movies.main()
+    second_run = pd.read_parquet(output_file)
+
+    assert len(first_run) == 1
+    assert len(second_run) == 1
+    assert second_run["tconst"].is_unique
+    assert second_run["tconst"].tolist() == first_run["tconst"].tolist()
